@@ -5,6 +5,7 @@
 
 const CACHE_NAME = 'bee-tasks-shell-v1';
 const SHELL_FILES = [
+  './index.html',
   './bbbee_v5_2.html',
   './manifest.json',
   './icon-192.png',

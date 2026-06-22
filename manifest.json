@@ -2,7 +2,7 @@
   "name": "BEE Task System",
   "short_name": "BEE Tasks",
   "description": "B-BBEE verification task tracker for Compliance Hub Consulting",
-  "start_url": "./bbbee_v5_2.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#0f0f11",
