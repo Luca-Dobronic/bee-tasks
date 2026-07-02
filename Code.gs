@@ -12,14 +12,15 @@ function doGet(e) {
   const callback = e.parameter.callback;
   let result;
   try {
-    if      (action === 'getTasks')      result = getTasks();
-    else if (action === 'addTask')       result = addTask(JSON.parse(e.parameter.task));
-    else if (action === 'updateTask')    result = updateTask(JSON.parse(e.parameter.task));
-    else if (action === 'deleteTask')    result = deleteTask(e.parameter.id);
-    else if (action === 'updateStatus')  result = updateStatus(JSON.parse(e.parameter.payload));
-    else if (action === 'addComment')    result = addComment(JSON.parse(e.parameter.payload));
-    else if (action === 'deleteComment') result = deleteComment(JSON.parse(e.parameter.payload));
-    else if (action === 'getLog')        result = getLog();
+    if      (action === 'getTasks')          result = getTasks();
+    else if (action === 'addTask')           result = addTask(JSON.parse(e.parameter.task));
+    else if (action === 'updateTask')        result = updateTask(JSON.parse(e.parameter.task));
+    else if (action === 'deleteTask')        result = deleteTask(e.parameter.id);
+    else if (action === 'updateStatus')      result = updateStatus(JSON.parse(e.parameter.payload));
+    else if (action === 'addComment')        result = addComment(JSON.parse(e.parameter.payload));
+    else if (action === 'deleteComment')     result = deleteComment(JSON.parse(e.parameter.payload));
+    else if (action === 'toggleCommentDone') result = toggleCommentDone(JSON.parse(e.parameter.payload));
+    else if (action === 'getLog')            result = getLog();
     else result = { error: 'Unknown action: ' + action };
   } catch(err) {
     result = { error: err.toString() };
@@ -174,7 +175,8 @@ function addComment(payload) {
         ts: new Date().toISOString(),
         by: payload.by||'',
         text: payload.text||'',
-        replyTo: payload.replyTo || null
+        replyTo: payload.replyTo || null,
+        completed: false
       });
       s.getRange(r, cCol).setValue(JSON.stringify(comments));
       SpreadsheetApp.flush();
@@ -205,6 +207,30 @@ function deleteComment(payload) {
       s.getRange(r, cCol).setValue(JSON.stringify(comments));
       SpreadsheetApp.flush();
       writeLog(payload.id, '', 'Comment deleted', payload.by, target.text);
+      return { success: true };
+    }
+  }
+  return { error: 'Not found' };
+}
+
+// Anyone may toggle a comment's completed state (unlike delete, which is
+// author-only) — it tracks whether the point raised has been addressed,
+// a shared fact about the work rather than something owned by the author.
+function toggleCommentDone(payload) {
+  const s    = getTaskSheet();
+  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(payload.id).trim()) {
+      const r      = i + 2;
+      const cCol   = col(s,'comments');
+      let comments = [];
+      try { comments = JSON.parse(s.getRange(r, cCol).getValue()); } catch(e) {}
+      const target = comments.find(c => (c.id || c.ts) === payload.commentKey);
+      if (!target) return { error: 'Comment not found' };
+      target.completed = !!payload.completed;
+      s.getRange(r, cCol).setValue(JSON.stringify(comments));
+      SpreadsheetApp.flush();
+      writeLog(payload.id, '', target.completed ? 'Comment marked complete' : 'Comment marked incomplete', payload.by||'', target.text);
       return { success: true };
     }
   }

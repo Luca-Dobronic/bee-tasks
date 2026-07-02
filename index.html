@@ -189,6 +189,11 @@ textarea.fi{resize:none;height:80px;line-height:1.6}
 .ci.cLuca .cb{color:var(--luca)}
 .ci.cEdrich .cb{color:var(--edrich)}
 .ct{font-size:9px;color:var(--mu2);margin-left:6px}
+.cchk{width:13px;height:13px;border-radius:4px;border:1.5px solid var(--bd);cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;margin-right:6px;background:var(--bg)}
+.cchk.ck{background:var(--mu);border-color:var(--mu)}
+.cchk svg{width:8px;height:8px;fill:none;stroke:#0f0f11;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.cchk.ck svg{opacity:1}
+.ctext.cdone{text-decoration:line-through;color:var(--mu2)}
 .crt{font-size:10px;color:var(--mu2);font-style:italic;margin-bottom:3px}
 .cac{display:flex;gap:10px;margin-top:4px}
 .cac button{background:transparent;border:none;padding:0;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--mu);cursor:pointer;font-family:'DM Mono',monospace}
@@ -885,9 +890,13 @@ function renderBoard() {
             replyLine = '<div class="crt">↳ replying to a deleted comment</div>';
           }
         }
+        var done = !!c.completed;
         html += '<div class="ci ' + authorCls + '" style="margin-left:' + indent + 'px">';
         html += replyLine;
-        html += '<span class="cb">' + c.by + '</span><span class="ct">' + ts + '</span><br>' + c.text;
+        html += '<span class="cchk' + (done ? ' ck' : '') + '" onclick="toggleCommentDone(\'' + t.id + '\',\'' + key + '\',' + (!done) + ')">';
+        html += '<svg viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3"/></svg></span>';
+        html += '<span class="cb">' + c.by + '</span><span class="ct">' + ts + '</span><br>';
+        html += '<span class="ctext' + (done ? ' cdone' : '') + '">' + c.text + '</span>';
         html += '<div class="cac">';
         html += '<button onclick="startReply(\'' + t.id + '\',\'' + key + '\')">Reply</button>';
         if (c.by && c.by === whoami()) {
@@ -1008,6 +1017,20 @@ function delComment(taskId, commentKey) {
     if (r.error) throw new Error(r.error);
     fetchAll(); showToast('Comment deleted', 'a');
   }).catch(function(e) { showToast('Failed: ' + e.message, 'e'); });
+}
+
+// Anyone may toggle a comment's completed state, not just its author.
+function toggleCommentDone(taskId, commentKey, newVal) {
+  var t = tasks.find(function(x) { return x.id === taskId; });
+  var c = t && Array.isArray(t.comments) ? t.comments.find(function(x) { return cKey(x) === commentKey; }) : null;
+  if (c) { c.completed = newVal; renderBoard(); }
+  jsonpCall({action:'toggleCommentDone', payload:{id:taskId, commentKey:commentKey, completed:newVal, by:whoami()}}).then(function(r) {
+    if (r.error) throw new Error(r.error);
+    fetchAll();
+  }).catch(function(e) {
+    if (c) { c.completed = !newVal; renderBoard(); }
+    showToast('Failed: ' + e.message, 'e');
+  });
 }
 
 function delTask(id) {
