@@ -21,6 +21,7 @@
   --bg:#0f0f11;--sf:#18181c;--sf2:#1e1e24;--bd:#2a2a32;--bd2:#34343e;
   --tx:#e8e8ec;--mu:#6b6b78;--mu2:#4a4a58;
   --lime:#c8f542;--teal:#4af0c4;--amber:#f5c842;--red:#f07070;--blue:#70a4f0;
+  --luca:#8fe552;--edrich:#e8d44a;
 }
 body{background:var(--bg);color:var(--tx);font-family:'DM Mono',monospace;min-height:100vh;padding:24px 20px 80px}
 .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px}
@@ -180,10 +181,22 @@ textarea.fi{resize:none;height:80px;line-height:1.6}
 .ib:hover{border-color:var(--mu);color:var(--tx)}
 .ib.dl:hover{border-color:#5a1a1a;color:#f07070}
 .cs{margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)}
-.ci{font-size:11px;color:var(--mu);line-height:1.6;padding:5px 0;border-bottom:1px solid var(--bd2)}
+.ci{font-size:11px;color:var(--mu);line-height:1.6;padding:6px 0 6px 10px;border-bottom:1px solid var(--bd2);border-left:2px solid transparent}
 .ci:last-child{border-bottom:none}
+.ci.cLuca{border-left-color:var(--luca)}
+.ci.cEdrich{border-left-color:var(--edrich)}
 .cb{color:var(--tx);font-weight:500}
+.ci.cLuca .cb{color:var(--luca)}
+.ci.cEdrich .cb{color:var(--edrich)}
 .ct{font-size:9px;color:var(--mu2);margin-left:6px}
+.crt{font-size:10px;color:var(--mu2);font-style:italic;margin-bottom:3px}
+.cac{display:flex;gap:10px;margin-top:4px}
+.cac button{background:transparent;border:none;padding:0;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--mu);cursor:pointer;font-family:'DM Mono',monospace}
+.cac button:hover{color:var(--tx)}
+.cac button.cdel:hover{color:#f07070}
+.reply-banner{display:flex;align-items:center;justify-content:space-between;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:5px 10px;margin-top:8px;font-size:10px;color:var(--mu)}
+.reply-banner button{background:transparent;border:none;color:var(--mu);cursor:pointer;font-size:12px;line-height:1;font-family:'DM Mono',monospace}
+.reply-banner button:hover{color:var(--tx)}
 .ca{display:flex;gap:6px;margin-top:8px}
 .ca input{flex:1;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-family:'DM Mono',monospace;font-size:11px;padding:6px 10px;outline:none}
 .ca input:focus{border-color:var(--amber)}
@@ -445,6 +458,28 @@ var pendingSaves = {};
 var charts = {};
 var WHOAMI_KEY = 'bbbee_whoami';
 var SEEN_KEY = 'bbbee_comments_seen'; // {taskId: isoTimestamp}
+var replyState = {}; // {taskId: {key, by, text}} — comment currently being replied to, per task
+
+// Stable identity for a comment: prefer its id, fall back to ts for legacy
+// comments created before ids existed.
+function cKey(c) { return c.id || c.ts; }
+
+// Nesting depth of a comment, walking its replyTo chain up to the root.
+// byKey maps cKey(comment) -> comment for the task's full comment list.
+// The walk itself is guarded (not the returned depth) so a corrupted/circular
+// replyTo chain can't infinite-loop — it just stops counting at that point.
+function commentDepth(c, byKey) {
+  var depth = 0;
+  var cur = c;
+  var guard = 0;
+  while (cur && cur.replyTo && guard++ < 20) {
+    var parent = byKey[cur.replyTo];
+    if (!parent) break;
+    depth++;
+    cur = parent;
+  }
+  return depth;
+}
 
 var SLABELS = {
   not_started:'Not Started',
@@ -832,13 +867,39 @@ function renderBoard() {
     html += '</div></div>';
     html += '<div class="cs" id="cs-' + t.id + '" style="display:none">';
     if (comments.length) {
+      var byKey = {};
+      comments.forEach(function(p) { byKey[cKey(p)] = p; });
       comments.forEach(function(c) {
         var ts = '';
         try { ts = new Date(c.ts).toLocaleDateString('en-ZA', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); } catch(e){}
-        html += '<div class="ci"><span class="cb">' + c.by + '</span><span class="ct">' + ts + '</span><br>' + c.text + '</div>';
+        var key = cKey(c);
+        var authorCls = c.by === 'Luca' ? 'cLuca' : c.by === 'Edrich' ? 'cEdrich' : '';
+        var indent = Math.min(commentDepth(c, byKey), 4) * 18;
+        var replyLine = '';
+        if (c.replyTo) {
+          var parent = byKey[c.replyTo];
+          if (parent) {
+            var snippet = (parent.text || '').slice(0, 60) + ((parent.text || '').length > 60 ? '...' : '');
+            replyLine = '<div class="crt">↳ replying to ' + (parent.by || 'comment') + ': "' + snippet + '"</div>';
+          } else {
+            replyLine = '<div class="crt">↳ replying to a deleted comment</div>';
+          }
+        }
+        html += '<div class="ci ' + authorCls + '" style="margin-left:' + indent + 'px">';
+        html += replyLine;
+        html += '<span class="cb">' + c.by + '</span><span class="ct">' + ts + '</span><br>' + c.text;
+        html += '<div class="cac">';
+        html += '<button onclick="startReply(\'' + t.id + '\',\'' + key + '\')">Reply</button>';
+        if (c.by && c.by === whoami()) {
+          html += '<button class="cdel" onclick="delComment(\'' + t.id + '\',\'' + key + '\')">Delete</button>';
+        }
+        html += '</div></div>';
       });
     } else {
       html += '<div style="font-size:11px;color:var(--mu);padding:6px 0">No comments yet.</div>';
+    }
+    if (replyState[t.id]) {
+      html += '<div class="reply-banner"><span>Replying to ' + replyState[t.id].by + '</span><button onclick="cancelReply(\'' + t.id + '\')">&times;</button></div>';
     }
     html += '<div class="ca">';
     html += '<input type="text" id="ci-' + t.id + '" placeholder="Add a comment..." onkeydown="if(event.key===\'Enter\')addComment(\'' + t.id + '\')" />';
@@ -915,11 +976,37 @@ function addComment(id) {
   var by = document.getElementById('cby-' + id).value;
   var text = inp.value.trim(); if (!text) return;
   inp.value = '';
+  var rs = replyState[id];
+  var commentId = 'c' + Date.now() + Math.random().toString(36).slice(2, 7);
+  delete replyState[id];
   showToast('Saving comment...', 'a');
-  jsonpCall({action:'addComment', payload:{id:id, by:by, text:text}}).then(function(r) {
+  jsonpCall({action:'addComment', payload:{id:id, commentId:commentId, by:by, text:text, replyTo: rs ? rs.key : null}}).then(function(r) {
     if (r.error) throw new Error(r.error);
     markTaskSeenNow(id);
     fetchAll(); showToast('Comment saved', 'a');
+  }).catch(function(e) { showToast('Failed: ' + e.message, 'e'); });
+}
+
+// Point the comment box at a specific parent comment (one-level-deep threading only).
+function startReply(taskId, commentKey) {
+  var t = tasks.find(function(x) { return x.id === taskId; });
+  var comments = t && Array.isArray(t.comments) ? t.comments : [];
+  var c = comments.find(function(x) { return cKey(x) === commentKey; });
+  if (!c) return;
+  replyState[taskId] = { key: commentKey, by: c.by, text: c.text };
+  renderBoard();
+  setTimeout(function() { var inp = document.getElementById('ci-' + taskId); if (inp) inp.focus(); }, 0);
+}
+
+function cancelReply(taskId) {
+  delete replyState[taskId];
+  renderBoard();
+}
+
+function delComment(taskId, commentKey) {
+  jsonpCall({action:'deleteComment', payload:{id:taskId, commentKey:commentKey, by:whoami()}}).then(function(r) {
+    if (r.error) throw new Error(r.error);
+    fetchAll(); showToast('Comment deleted', 'a');
   }).catch(function(e) { showToast('Failed: ' + e.message, 'e'); });
 }
 

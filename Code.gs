@@ -12,13 +12,14 @@ function doGet(e) {
   const callback = e.parameter.callback;
   let result;
   try {
-    if      (action === 'getTasks')     result = getTasks();
-    else if (action === 'addTask')      result = addTask(JSON.parse(e.parameter.task));
-    else if (action === 'updateTask')   result = updateTask(JSON.parse(e.parameter.task));
-    else if (action === 'deleteTask')   result = deleteTask(e.parameter.id);
-    else if (action === 'updateStatus') result = updateStatus(JSON.parse(e.parameter.payload));
-    else if (action === 'addComment')   result = addComment(JSON.parse(e.parameter.payload));
-    else if (action === 'getLog')       result = getLog();
+    if      (action === 'getTasks')      result = getTasks();
+    else if (action === 'addTask')       result = addTask(JSON.parse(e.parameter.task));
+    else if (action === 'updateTask')    result = updateTask(JSON.parse(e.parameter.task));
+    else if (action === 'deleteTask')    result = deleteTask(e.parameter.id);
+    else if (action === 'updateStatus')  result = updateStatus(JSON.parse(e.parameter.payload));
+    else if (action === 'addComment')    result = addComment(JSON.parse(e.parameter.payload));
+    else if (action === 'deleteComment') result = deleteComment(JSON.parse(e.parameter.payload));
+    else if (action === 'getLog')        result = getLog();
     else result = { error: 'Unknown action: ' + action };
   } catch(err) {
     result = { error: err.toString() };
@@ -168,10 +169,42 @@ function addComment(payload) {
       const cCol    = col(s,'comments');
       let comments  = [];
       try { comments = JSON.parse(s.getRange(r, cCol).getValue()); } catch(e) {}
-      comments.push({ ts: new Date().toISOString(), by: payload.by||'', text: payload.text||'' });
+      comments.push({
+        id: payload.commentId || '',
+        ts: new Date().toISOString(),
+        by: payload.by||'',
+        text: payload.text||'',
+        replyTo: payload.replyTo || null
+      });
       s.getRange(r, cCol).setValue(JSON.stringify(comments));
       SpreadsheetApp.flush();
       writeLog(payload.id, '', 'Comment added', payload.by, payload.text);
+      return { success: true };
+    }
+  }
+  return { error: 'Not found' };
+}
+
+// commentKey matches a comment's id, or falls back to its ts for legacy
+// comments created before ids existed. Only the comment's own author may
+// delete it — enforced here, not just hidden client-side.
+function deleteComment(payload) {
+  const s    = getTaskSheet();
+  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(payload.id).trim()) {
+      const r      = i + 2;
+      const cCol   = col(s,'comments');
+      let comments = [];
+      try { comments = JSON.parse(s.getRange(r, cCol).getValue()); } catch(e) {}
+      const match = c => (c.id || c.ts) === payload.commentKey;
+      const target = comments.find(match);
+      if (!target) return { error: 'Comment not found' };
+      if (!payload.by || target.by !== payload.by) return { error: 'Not authorized to delete this comment' };
+      comments = comments.filter(c => !match(c));
+      s.getRange(r, cCol).setValue(JSON.stringify(comments));
+      SpreadsheetApp.flush();
+      writeLog(payload.id, '', 'Comment deleted', payload.by, target.text);
       return { success: true };
     }
   }
