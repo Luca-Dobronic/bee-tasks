@@ -135,6 +135,13 @@
   .del-btn{background:none;border:none;color:var(--ink-faint);font-family:var(--mono);font-size:11px;
     letter-spacing:.06em;cursor:pointer;padding:3px 0 0 8px}
   .del-btn:hover{color:#ef4d5a}
+  .del-confirm{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:#ef4d5a;
+    letter-spacing:.02em;padding:3px 0 0 8px}
+  .del-confirm button{font-family:var(--mono);font-size:11px;border-radius:6px;cursor:pointer;padding:2px 10px}
+  .del-confirm .yes{background:#ef4d5a;color:#fff;border:none;font-weight:700}
+  .del-confirm .yes:hover{background:#ff5f6b}
+  .del-confirm .no{background:transparent;color:var(--ink-faint);border:1px solid var(--line)}
+  .del-confirm .no:hover{color:var(--ink);border-color:var(--ink-faint)}
 
   /* undo toast */
   .undo-toast{position:fixed;left:50%;bottom:24px;z-index:60;transform:translateX(-50%) translateY(20px);
@@ -544,6 +551,7 @@ function allAlerts(){
 }
 
 const clientOpen={}, pillarOpen={}, replyOpen={};   // clients COLLAPSED by default
+const delConfirmOpen={}, delConfirmTimer={};   // per-comment inline "Really delete?" state
 let VIEW="board";
 
 /* ===== view switching ===== */
@@ -845,7 +853,12 @@ function renderComment(node,number,ci,pi){
     +'<button class="reply-link" onclick="showReply('+node.id+')">↳ Reply</button>'
     +'<button class="flag-btn'+(node.flag?" on":"")+'" onclick="toggleFlag('+ci+','+pi+','+node.id+')">'
       +(node.flag?"⚑ Resolve":"⚑ Flag")+'</button>'
-    +'<button class="del-btn" onclick="deleteComment('+ci+','+pi+','+node.id+')">✕ Delete</button>';
+    +(delConfirmOpen[node.id]
+      ? '<span class="del-confirm">Really delete?'
+          +'<button class="yes" onclick="confirmDeleteYes('+ci+','+pi+','+node.id+')">Yes</button>'
+          +'<button class="no" onclick="confirmDeleteNo('+ci+','+pi+','+node.id+')">No</button>'
+        +'</span>'
+      : '<button class="del-btn" onclick="askDeleteComment('+ci+','+pi+','+node.id+')">✕ Delete</button>');
   if(replyOpen[node.id]){
     h+='<div class="replybox"><input id="rp-'+node.id+'" placeholder="Reply as '+ME+' to '+number+'…" '
       +'onkeydown="if(event.key===\'Enter\')addReply('+ci+','+pi+','+node.id+')">'
@@ -976,8 +989,20 @@ function showUndoToast(msg, onUndo){
   };
   undoTimer=setTimeout(()=>{ el.classList.remove("show"); },6000);
 }
-function deleteComment(ci,pi,id){
-  if(!confirm("Delete this comment?")) return;
+function askDeleteComment(ci,pi,id){
+  delConfirmOpen[id]=true;
+  render();
+  clearTimeout(delConfirmTimer[id]);
+  delConfirmTimer[id]=setTimeout(()=>{ delConfirmOpen[id]=false; render(); },5000);
+}
+function confirmDeleteNo(ci,pi,id){
+  clearTimeout(delConfirmTimer[id]);
+  delConfirmOpen[id]=false;
+  render();
+}
+function confirmDeleteYes(ci,pi,id){
+  clearTimeout(delConfirmTimer[id]);
+  delConfirmOpen[id]=false;
   const node=findNode(CLIENTS[ci].p[PILLARS[pi]].comments,id);
   if(!node) return;
   node.deleted=true;
