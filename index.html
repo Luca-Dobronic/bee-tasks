@@ -132,6 +132,18 @@
     letter-spacing:.06em;cursor:pointer;padding:3px 0 0 8px}
   .flag-btn.on{color:#f0a020}
   .flag-btn:hover{color:#f0a020}
+  .del-btn{background:none;border:none;color:var(--ink-faint);font-family:var(--mono);font-size:11px;
+    letter-spacing:.06em;cursor:pointer;padding:3px 0 0 8px}
+  .del-btn:hover{color:#ef4d5a}
+
+  /* undo toast */
+  .undo-toast{position:fixed;left:50%;bottom:24px;z-index:60;transform:translateX(-50%) translateY(20px);
+    background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 12px 10px 16px;
+    display:flex;align-items:center;gap:14px;font-size:13px;color:var(--ink-dim);font-family:var(--mono);
+    box-shadow:0 10px 30px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
+  .undo-toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+  .undo-toast button{background:var(--accent);color:#111;border:none;border-radius:8px;font-family:var(--mono);
+    font-weight:700;font-size:12px;padding:7px 14px;cursor:pointer}
 
   /* row badges */
   .a-dot{width:8px;height:8px;border-radius:50%;background:#f0a020;flex:0 0 auto;display:inline-block}
@@ -293,6 +305,8 @@
   <button id="bnav-log" onclick="setView('log')"><span class="ic">☰</span>Log</button>
 </div></nav>
 
+<div id="undoToast" class="undo-toast"></div>
+
 <script>
 /* =====================================================================
    SYNC LAYER — Google Sheets via Apps Script
@@ -328,7 +342,7 @@ function stateToPayload(){
     const el=c.p[name];
     elements.push({client:c.name,pillar:name,status:el.status,who:el.who,due:el.due||""});
     const walk=(list,parentId)=>list.forEach(x=>{
-      comments.push({id:x.id,client:c.name,pillar:name,parentId:parentId||"",who:x.who,when:x.when,text:x.text,flag:!!x.flag});
+      comments.push({id:x.id,client:c.name,pillar:name,parentId:parentId||"",who:x.who,when:x.when,text:x.text,flag:!!x.flag,deleted:!!x.deleted});
       walk(x.replies,x.id);
     });
     walk(el.comments,"");
@@ -350,7 +364,7 @@ function payloadToState(data){
     }
   });
   const nodes={};
-  (data.comments||[]).forEach(r=>{ nodes[r.id]={id:r.id,who:r.who,when:r.when,text:r.text,flag:String(r.flag)==="true"||r.flag===true,replies:[]}; if(+r.id>=nextCid) nextCid=+r.id+1; });
+  (data.comments||[]).forEach(r=>{ nodes[r.id]={id:r.id,who:r.who,when:r.when,text:r.text,flag:String(r.flag)==="true"||r.flag===true,deleted:String(r.deleted)==="true"||r.deleted===true,replies:[]}; if(+r.id>=nextCid) nextCid=+r.id+1; });
   (data.comments||[]).forEach(r=>{
     const n=nodes[r.id];
     if(r.parentId && nodes[r.parentId]) nodes[r.parentId].replies.push(n);
@@ -499,8 +513,9 @@ function avatar(name){
 }
 const whoColor = w => w.toLowerCase().includes("luca") ? "#4bd07a" : "var(--accent)";
 const escHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-function countComments(node){ let n=node.length; node.forEach(c=>n+=countComments(c.replies)); return n; }
+function countComments(node){ let n=0; node.forEach(c=>{ if(c.deleted)return; n++; n+=countComments(c.replies); }); return n; }
 function findNode(list,id){ for(const c of list){ if(c.id===id)return c; const f=findNode(c.replies,id); if(f)return f; } return null; }
+const visibleComments = list => list.filter(c=>!c.deleted);
 
 /* ===== ALERTS: auto-flag instruction-style comments, plus manual flags ===== */
 const ALERT_WORDS=/\b(please|urgent|asap|action|needs?|must|require[sd]?|kindly|attention|follow[ -]?up|review|deadline|by (mon|tue|wed|thu|fri|today|tomorrow))\b|@edrich|@luca/i;
@@ -516,9 +531,9 @@ function summarize(t){
   return s ? s.charAt(0).toUpperCase()+s.slice(1) : t;
 }
 function walkFlags(list, ci, pi, out){
-  list.forEach(c=>{ if(c.flag) out.push({ci,pi,id:c.id,who:c.who,when:c.when,text:c.text}); walkFlags(c.replies,ci,pi,out); });
+  list.forEach(c=>{ if(c.deleted)return; if(c.flag) out.push({ci,pi,id:c.id,who:c.who,when:c.when,text:c.text}); walkFlags(c.replies,ci,pi,out); });
 }
-function countFlags(list){ let n=0; list.forEach(c=>{ if(c.flag)n++; n+=countFlags(c.replies); }); return n; }
+function countFlags(list){ let n=0; list.forEach(c=>{ if(c.deleted)return; if(c.flag)n++; n+=countFlags(c.replies); }); return n; }
 function allAlerts(){
   const out=[];
   CLIENTS.forEach((c,ci)=>PILLARS.forEach((name,pi)=>{
@@ -811,7 +826,7 @@ function pillarRow(c,ci,name,pi){
         +'<input type="date" value="'+(el.due||"")+'" onchange="setDue('+ci+','+pi+',this.value)">'
         +(el.due?'<button class="clr" onclick="setDue('+ci+','+pi+',\'\')">✕ clear</button>':'')
       +'</div>'
-      + (el.comments.length ? el.comments.map((n,i)=>renderComment(n,String(i+1),ci,pi)).join("")
+      + (visibleComments(el.comments).length ? visibleComments(el.comments).map((n,i)=>renderComment(n,String(i+1),ci,pi)).join("")
                             : '<div class="none">No comments on this element yet.</div>')
       + '<div class="addcmt"><input id="ac-'+ci+'-'+pi+'" placeholder="Comment on '+name+' as '+ME+'…" '
         + 'onkeydown="if(event.key===\'Enter\')addComment('+ci+','+pi+')">'
@@ -829,15 +844,17 @@ function renderComment(node,number,ci,pi){
     +'<div class="cmt-text">'+escHtml(node.text)+'</div>'
     +'<button class="reply-link" onclick="showReply('+node.id+')">↳ Reply</button>'
     +'<button class="flag-btn'+(node.flag?" on":"")+'" onclick="toggleFlag('+ci+','+pi+','+node.id+')">'
-      +(node.flag?"⚑ Resolve":"⚑ Flag")+'</button>';
+      +(node.flag?"⚑ Resolve":"⚑ Flag")+'</button>'
+    +'<button class="del-btn" onclick="deleteComment('+ci+','+pi+','+node.id+')">✕ Delete</button>';
   if(replyOpen[node.id]){
     h+='<div class="replybox"><input id="rp-'+node.id+'" placeholder="Reply as '+ME+' to '+number+'…" '
       +'onkeydown="if(event.key===\'Enter\')addReply('+ci+','+pi+','+node.id+')">'
       +'<button onclick="addReply('+ci+','+pi+','+node.id+')">Post</button></div>';
   }
-  if(node.replies.length){
+  const vReplies=visibleComments(node.replies);
+  if(vReplies.length){
     h+='<div class="children">'
-      + node.replies.map((c,i)=>renderComment(c,number+'.'+(i+1),ci,pi)).join("")
+      + vReplies.map((c,i)=>renderComment(c,number+'.'+(i+1),ci,pi)).join("")
       +'</div>';
   }
   return h+'</div>';
@@ -943,6 +960,37 @@ function addReply(ci,pi,id){
   const node=findNode(CLIENTS[ci].p[PILLARS[pi]].comments,id);
   node.replies.push({id:nextCid++,who:ME,when:nowStr(),text:v,flag:isInstruction(v),replies:[]});
   replyOpen[id]=false; render(); queueSave();
+}
+
+/* ===== comment delete (soft) + undo ===== */
+let undoTimer=null;
+function showUndoToast(msg, onUndo){
+  const el=document.getElementById("undoToast");
+  clearTimeout(undoTimer);
+  el.innerHTML='<span>'+escHtml(msg)+'</span><button id="undoBtn">Undo</button>';
+  el.classList.add("show");
+  document.getElementById("undoBtn").onclick=function(){
+    clearTimeout(undoTimer);
+    el.classList.remove("show");
+    onUndo();
+  };
+  undoTimer=setTimeout(()=>{ el.classList.remove("show"); },6000);
+}
+function deleteComment(ci,pi,id){
+  if(!confirm("Delete this comment?")) return;
+  const node=findNode(CLIENTS[ci].p[PILLARS[pi]].comments,id);
+  if(!node) return;
+  node.deleted=true;
+  logEvent(ME,"Comment deleted", CLIENTS[ci].name+" — "+PILLARS[pi]+": "+summarize(node.text));
+  render(); queueSave();
+  showUndoToast("Comment deleted", ()=>restoreComment(ci,pi,id));
+}
+function restoreComment(ci,pi,id){
+  const node=findNode(CLIENTS[ci].p[PILLARS[pi]].comments,id);
+  if(!node) return;
+  node.deleted=false;
+  logEvent(ME,"Comment restored", CLIENTS[ci].name+" — "+PILLARS[pi]+": "+summarize(node.text));
+  pillarOpen[ci+"-"+pi]=true; render(); queueSave();
 }
 render();
 showConnect();

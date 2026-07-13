@@ -1,261 +1,103 @@
-// B-BBEE TASK SYSTEM v4 — Google Apps Script Backend
-// JSONP only. Auto-migrates old sheets to new column layout.
+/**
+ * CH CONSULT B-BBEE BOARD — Apps Script backend (Code.gs)
+ * ------------------------------------------------------
+ * SET-UP (once):
+ * 1. Create a Google Sheet (any name). Copy its ID from the URL.
+ * 2. Extensions → Apps Script → paste this file, set SHEET_ID below.
+ * 3. Deploy → New deployment → Web app:
+ *      Execute as: Me   |   Who has access: Anyone with the link
+ * 4. Copy the /exec URL into the app's Connect box (you and Luca use the same URL).
+ *
+ * DATA MODEL (two tabs, auto-created):
+ *   Elements: client | pillar | status | who | due
+ *   Comments: id | client | pillar | parentId | who | when | text | flag
+ *
+ * SYNC MODEL: the app POSTs full state (last write wins) and GETs full state.
+ * Simple and robust for a two-person team.
+ */
 
-const SHEET_NAME = 'Tasks';
-const LOG_SHEET  = 'ActivityLog';
+const SHEET_ID = "1b9hZz63iwuuGmpC-mLvdNPgBgwvMMbUA1z-uopLp35Q";
 
-// Required columns in exact order
-const TASK_HEADERS = ['id','client','pillarStr','pillars','priority','instructions','done','createdAt','completedAt','assignFrom','assignTo','status','dueDate','comments'];
+const EL_HEAD = ["client","pillar","status","who","due"];
+const CM_HEAD = ["id","client","pillar","parentId","who","when","text","flag","deleted"];
+const LG_HEAD = ["when","who","action","detail"];
+const CI_HEAD = ["client","period","fye","type","sector","drive"];
+const AR_HEAD = ["client","period","closedOn","pillar","status","who","due","comments"];
 
-function doGet(e) {
-  const action   = e.parameter.action;
-  const callback = e.parameter.callback;
-  let result;
-  try {
-    if      (action === 'getTasks')          result = getTasks();
-    else if (action === 'addTask')           result = addTask(JSON.parse(e.parameter.task));
-    else if (action === 'updateTask')        result = updateTask(JSON.parse(e.parameter.task));
-    else if (action === 'deleteTask')        result = deleteTask(e.parameter.id);
-    else if (action === 'updateStatus')      result = updateStatus(JSON.parse(e.parameter.payload));
-    else if (action === 'addComment')        result = addComment(JSON.parse(e.parameter.payload));
-    else if (action === 'deleteComment')     result = deleteComment(JSON.parse(e.parameter.payload));
-    else if (action === 'toggleCommentDone') result = toggleCommentDone(JSON.parse(e.parameter.payload));
-    else if (action === 'getLog')            result = getLog();
-    else result = { error: 'Unknown action: ' + action };
-  } catch(err) {
-    result = { error: err.toString() };
-  }
-  const json = JSON.stringify(result);
-  if (callback) {
-    return ContentService.createTextOutput(callback + '(' + json + ')').setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
-  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
-}
-
-// ── SHEET SETUP + AUTO-MIGRATION ─────────────────────────────
-function getTaskSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let s = ss.getSheetByName(SHEET_NAME);
-
-  // Create fresh if doesn't exist
-  if (!s) {
-    s = ss.insertSheet(SHEET_NAME);
-    s.appendRow(TASK_HEADERS);
-    s.setFrozenRows(1);
-    return s;
-  }
-
-  // ── MIGRATION: add any missing columns to existing sheet ──
-  const lastCol    = s.getLastColumn();
-  const existingH  = lastCol > 0 ? s.getRange(1, 1, 1, lastCol).getValues()[0] : [];
-  TASK_HEADERS.forEach(h => {
-    if (!existingH.includes(h)) {
-      const newCol = s.getLastColumn() + 1;
-      s.getRange(1, newCol).setValue(h);
-      // Default values for existing rows
-      const lastRow = s.getLastRow();
-      if (lastRow > 1) {
-        const defaultVal = h === 'done' ? false : h === 'status' ? 'not_started' : h === 'comments' ? '[]' : '';
-        s.getRange(2, newCol, lastRow - 1, 1).setValue(defaultVal);
-      }
-    }
-  });
-
+function ss(){ return SpreadsheetApp.openById(SHEET_ID); }
+function tab(name, head){
+  let s = ss().getSheetByName(name);
+  if(!s){ s = ss().insertSheet(name); s.appendRow(head); }
   return s;
 }
-
-// Get column number (1-indexed) by header name — never hardcode positions
-function col(sheet, name) {
-  const lastCol = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  const idx = headers.indexOf(name);
-  if (idx === -1) throw new Error('Column not found: ' + name);
-  return idx + 1;
-}
-
-function getLogSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let s = ss.getSheetByName(LOG_SHEET);
-  if (!s) {
-    s = ss.insertSheet(LOG_SHEET);
-    s.appendRow(['timestamp','taskId','client','action','by','note']);
-    s.setFrozenRows(1);
-  }
-  return s;
-}
-
-function writeLog(taskId, client, action, by, note) {
-  try { getLogSheet().appendRow([new Date().toISOString(), taskId, client||'', action||'', by||'', note||'']); } catch(e) {}
-}
-
-// ── CRUD ─────────────────────────────────────────────────────
-function getTasks() {
-  const s       = getTaskSheet();
-  const lastRow = s.getLastRow();
-  const lastCol = s.getLastColumn();
-  if (lastRow <= 1) return { tasks: [] };
-  const headers = s.getRange(1, 1, 1, lastCol).getValues()[0];
-  const rows    = s.getRange(2, 1, lastRow - 1, lastCol).getValues();
-  const tasks   = rows.map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i]; });
-    try { obj.pillars  = JSON.parse(obj.pillars);  } catch(e) { obj.pillars  = []; }
-    try { obj.comments = JSON.parse(obj.comments); } catch(e) { obj.comments = []; }
-    obj.done   = (obj.done === true || obj.done === 'TRUE' || obj.done === 'true');
-    obj.id     = String(obj.id);
-    obj.status = obj.status || (obj.done ? 'approved' : 'not_started');
-    // Migrate old 'done' status to 'approved'
-    if (obj.status === 'done') obj.status = 'approved';
-    return obj;
+function readTab(name, head){
+  const s = tab(name, head);
+  const vals = s.getDataRange().getValues();
+  if(vals.length < 2) return [];
+  return vals.slice(1).filter(r=>r[0]!=="").map(r=>{
+    const o={}; head.forEach((h,i)=>o[h]= r[i]!==undefined? String(r[i]) : "");
+    return o;
   });
-  return { tasks: tasks.reverse() };
+}
+function writeTab(name, head, rows){
+  const s = tab(name, head);
+  s.clearContents();
+  const out=[head].concat(rows.map(o=>head.map(h=>o[h]!==undefined?o[h]:"")));
+  s.getRange(1,1,out.length,head.length).setValues(out);
 }
 
-function addTask(task) {
-  const s = getTaskSheet();
-  s.appendRow([
-    String(task.id), task.client||'', task.pillarStr||'',
-    JSON.stringify(task.pillars||[]), task.priority||'',
-    task.instructions||'', false, task.createdAt||'', '',
-    task.assignFrom||'', task.assignTo||'',
-    'not_started', task.dueDate||'', '[]'
-  ]);
-  SpreadsheetApp.flush();
-  writeLog(task.id, task.client, 'Task created', task.assignFrom, 'Assigned to ' + task.assignTo);
-  return { success: true };
+function doGet(){
+  const data = { elements: readTab("Elements", EL_HEAD),
+                 comments: readTab("Comments", CM_HEAD),
+                 log:      readTab("Log", LG_HEAD),
+                 clientinfo: readTab("ClientInfo", CI_HEAD),
+                 archive:  readTab("Archive", AR_HEAD) };
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
-function updateTask(task) {
-  const s    = getTaskSheet();
-  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(task.id).trim()) {
-      const r      = i + 2;
-      const doneV  = (task.done === true || task.done === 'true');
-      s.getRange(r, col(s,'done')).setValue(doneV);
-      s.getRange(r, col(s,'completedAt')).setValue(task.completedAt||'');
-      if (doneV) s.getRange(r, col(s,'status')).setValue('approved');
-      SpreadsheetApp.flush();
-      writeLog(task.id, '', doneV ? 'Marked done' : 'Marked pending', task.by||'', '');
-      return { success: true };
-    }
+function doPost(e){
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);                       // prevent Luca+Edrich writing at the same instant
+  try{
+    const data = JSON.parse(e.postData.contents);
+    if(data.elements) writeTab("Elements", EL_HEAD, data.elements);
+    if(data.comments) writeTab("Comments", CM_HEAD, data.comments);
+    if(data.log)      writeTab("Log", LG_HEAD, data.log.slice(0,500));
+    if(data.clientinfo) writeTab("ClientInfo", CI_HEAD, data.clientinfo);
+    if(data.archive)  writeTab("Archive", AR_HEAD, data.archive);
+    return ContentService.createTextOutput(JSON.stringify({ok:true}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }catch(err){
+    return ContentService.createTextOutput(JSON.stringify({ok:false,error:String(err)}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }finally{
+    lock.releaseLock();
   }
-  return { error: 'Not found', id: task.id };
 }
 
-function updateStatus(payload) {
-  const s    = getTaskSheet();
-  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(payload.id).trim()) {
-      const r = i + 2;
-      s.getRange(r, col(s,'status')).setValue(payload.status);
-      const isDone = (payload.status === 'done');
-      s.getRange(r, col(s,'done')).setValue(isDone);
-      s.getRange(r, col(s,'completedAt')).setValue(isDone ? (payload.completedAt||'') : '');
-      SpreadsheetApp.flush();
-      writeLog(payload.id, '', 'Status → ' + payload.status, payload.by||'', payload.note||'');
-      return { success: true };
-    }
-  }
-  return { error: 'Not found', id: payload.id };
-}
-
-function addComment(payload) {
-  const s    = getTaskSheet();
-  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(payload.id).trim()) {
-      const r       = i + 2;
-      const cCol    = col(s,'comments');
-      let comments  = [];
-      try { comments = JSON.parse(s.getRange(r, cCol).getValue()); } catch(e) {}
-      comments.push({
-        id: payload.commentId || '',
-        ts: new Date().toISOString(),
-        by: payload.by||'',
-        text: payload.text||'',
-        replyTo: payload.replyTo || null,
-        completed: false
-      });
-      s.getRange(r, cCol).setValue(JSON.stringify(comments));
-      SpreadsheetApp.flush();
-      writeLog(payload.id, '', 'Comment added', payload.by, payload.text);
-      return { success: true };
-    }
-  }
-  return { error: 'Not found' };
-}
-
-// commentKey matches a comment's id, or falls back to its ts for legacy
-// comments created before ids existed. Only the comment's own author may
-// delete it — enforced here, not just hidden client-side.
-function deleteComment(payload) {
-  const s    = getTaskSheet();
-  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(payload.id).trim()) {
-      const r      = i + 2;
-      const cCol   = col(s,'comments');
-      let comments = [];
-      try { comments = JSON.parse(s.getRange(r, cCol).getValue()); } catch(e) {}
-      const match = c => (c.id || c.ts) === payload.commentKey;
-      const target = comments.find(match);
-      if (!target) return { error: 'Comment not found' };
-      if (!payload.by || target.by !== payload.by) return { error: 'Not authorized to delete this comment' };
-      comments = comments.filter(c => !match(c));
-      s.getRange(r, cCol).setValue(JSON.stringify(comments));
-      SpreadsheetApp.flush();
-      writeLog(payload.id, '', 'Comment deleted', payload.by, target.text);
-      return { success: true };
-    }
-  }
-  return { error: 'Not found' };
-}
-
-// Anyone may toggle a comment's completed state (unlike delete, which is
-// author-only) — it tracks whether the point raised has been addressed,
-// a shared fact about the work rather than something owned by the author.
-function toggleCommentDone(payload) {
-  const s    = getTaskSheet();
-  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(payload.id).trim()) {
-      const r      = i + 2;
-      const cCol   = col(s,'comments');
-      let comments = [];
-      try { comments = JSON.parse(s.getRange(r, cCol).getValue()); } catch(e) {}
-      const target = comments.find(c => (c.id || c.ts) === payload.commentKey);
-      if (!target) return { error: 'Comment not found' };
-      target.completed = !!payload.completed;
-      s.getRange(r, cCol).setValue(JSON.stringify(comments));
-      SpreadsheetApp.flush();
-      writeLog(payload.id, '', target.completed ? 'Comment marked complete' : 'Comment marked incomplete', payload.by||'', target.text);
-      return { success: true };
-    }
-  }
-  return { error: 'Not found' };
-}
-
-function deleteTask(id) {
-  const s    = getTaskSheet();
-  const rows = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow()-1, 1).getValues() : [];
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(id).trim()) {
-      writeLog(id, '', 'Task deleted', '', '');
-      s.deleteRow(i + 2);
-      SpreadsheetApp.flush();
-      return { success: true };
-    }
-  }
-  return { error: 'Not found' };
-}
-
-function getLog() {
-  const s = getLogSheet();
-  if (s.getLastRow() <= 1) return { log: [] };
-  const headers = s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0];
-  const rows    = s.getRange(2, 1, s.getLastRow()-1, s.getLastColumn()).getValues();
-  const log     = rows.map(row => { const o={}; headers.forEach((h,i)=>o[h]=row[i]); return o; });
-  return { log: log.reverse().slice(0, 100) };
+/**
+ * PHASE-2 (optional, off by default): daily due-date email.
+ * In the Apps Script editor: Triggers → Add trigger → dailyDueReminder → time-driven → 7am.
+ */
+function dailyDueReminder(){
+  const els = readTab("Elements", EL_HEAD);
+  const today = new Date(new Date().toDateString());
+  const soon = els.filter(r=>{
+    if(!r.due || r.status==="Approved") return false;
+    const d = Math.round((new Date(r.due)-today)/86400000);
+    return d <= 2;                            // overdue or due within 2 days
+  });
+  if(!soon.length) return;
+  const lines = soon.map(r=>{
+    const d = Math.round((new Date(r.due)-today)/86400000);
+    const state = d<0 ? Math.abs(d)+"d OVERDUE" : d===0 ? "due TODAY" : "due in "+d+"d";
+    return "• "+r.client+" — "+r.pillar+" ("+r.status+", "+(r.who||"Both")+"): "+state;
+  }).join("\n");
+  MailApp.sendEmail({
+    to: "edrich@chconsult.co.za, luca@chconsult.co.za",
+    subject: "B-BBEE Board: "+soon.length+" element(s) due/overdue",
+    body: "Good morning,\n\nThe following elements need attention:\n\n"+lines+
+          "\n\nOpen the board: https://luca-dobronic.github.io/bee-tasks/\n"
+  });
 }
