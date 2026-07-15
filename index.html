@@ -521,7 +521,7 @@ function avatar(name){
 const whoColor = w => w.toLowerCase().includes("luca") ? "#4bd07a" : "var(--accent)";
 const escHtml = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 function countComments(node){ let n=0; node.forEach(c=>{ if(c.deleted)return; n++; n+=countComments(c.replies); }); return n; }
-function findNode(list,id){ for(const c of list){ if(c.id===id)return c; const f=findNode(c.replies,id); if(f)return f; } return null; }
+function findNode(list,id){ for(const c of list){ if(c.id==id)return c; const f=findNode(c.replies,id); if(f)return f; } return null; }
 const visibleComments = list => list.filter(c=>!c.deleted);
 
 /* ===== ALERTS: auto-flag instruction-style comments, plus manual flags ===== */
