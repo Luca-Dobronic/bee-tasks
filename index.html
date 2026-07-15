@@ -320,7 +320,7 @@
    1) Deploy the provided Code.gs as a Web App (execute as you, access: anyone with link)
    2) Paste the /exec URL below OR use the Connect box on first load
    ===================================================================== */
-let SCRIPT_URL = "";                      // <- optionally hard-code your Apps Script /exec URL here
+let SCRIPT_URL = "https://script.google.com/macros/s/AKfycby8bVYiuI8ldT_7Ha8ywJzdB2vrair5cW9034Xvq033xwRZ4-o7l9_s8PyR9Hz-Bg2H6Q/exec";                      // <- optionally hard-code your Apps Script /exec URL here
 try{ if(!SCRIPT_URL) SCRIPT_URL = localStorage.getItem("bee_script_url")||""; }catch(e){}
 let SYNC_STATE = "offline";               // offline | syncing | live | error
 
@@ -394,11 +394,11 @@ async function loadRemote(){
 }
 let saveTimer=null;
 function queueSave(){                    // debounce rapid edits into one write
-  if(!SCRIPT_URL) return;
+  if(!SCRIPT_URL){ setSync("error"); console.warn("queueSave: SCRIPT_URL is empty, save skipped"); return; }
   clearTimeout(saveTimer); saveTimer=setTimeout(saveRemote,900);
 }
 async function saveRemote(){
-  if(!SCRIPT_URL) return;
+  if(!SCRIPT_URL){ setSync("error"); console.warn("saveRemote: SCRIPT_URL is empty, save skipped"); return; }
   setSync("syncing");
   try{
     await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify(stateToPayload())});
