@@ -509,6 +509,23 @@ function schedDaysToExpiry(row){
   if(isNaN(exp)) return null;
   return Math.round((exp-TODAY())/86400000);
 }
+// Google Sheets silently upgrades date-looking text to a real Date cell; reading
+// it back then stringifies to something like "Tue Jul 14 2026 00:00:00 GMT+...".
+// <input type="date"> rejects anything that isn't strict yyyy-MM-dd and just goes
+// blank, even though the value is otherwise valid — normalize before display.
+const MONTH_ABBR={Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12"};
+function toISODate(v){
+  if(!v) return "";
+  if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  // Date.toString() shape: "Fri Jul 03 2026 00:00:00 GMT+0200 (...)" — pull the
+  // calendar date straight out of the text rather than round-tripping through a
+  // Date/timezone conversion, which can shift the day by one across UTC offsets.
+  const m=String(v).match(/^\w{3} (\w{3}) (\d{2}) (\d{4})/);
+  if(m && MONTH_ABBR[m[1]]) return m[3]+"-"+MONTH_ABBR[m[1]]+"-"+m[2];
+  const d=new Date(v);
+  if(isNaN(d)) return "";
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
 function init(overrides){
   const p={}; PILLARS.forEach(name=>{ p[name]={status:"Not started",who:"Both",due:"",comments:[]}; });
   Object.keys(overrides||{}).forEach(k=>{ if(p[k]) p[k]=Object.assign(p[k],overrides[k]); });
@@ -917,7 +934,7 @@ function scheduleRowTr(r){
   return '<tr>'
     +'<td class="sched-name-cell">'+escHtml(r.name)+'</td>'
     +'<td><span class="tag '+cls+'">'+txt+'</span></td>'
-    +'<td><input type="date" value="'+(r.certificateExpiry||"")+'" onchange="setSchedField('+r.id+',\'certificateExpiry\',this.value)"></td>'
+    +'<td><input type="date" value="'+toISODate(r.certificateExpiry)+'" onchange="setSchedField('+r.id+',\'certificateExpiry\',this.value)"></td>'
     +'<td><input type="text" value="'+escHtml(r.analystAllocated||"")+'" placeholder="—" onchange="setSchedField('+r.id+',\'analystAllocated\',this.value)"></td>'
     + milestoneCells
     + archiveCell
@@ -930,7 +947,7 @@ function scheduleArchiveRowTr(r){
   return '<tr>'
     +'<td class="sched-name-cell">'+escHtml(r.name)+'</td>'
     +'<td><span class="tag due-ok">Archived '+(r.archivedAt||"")+'</span></td>'
-    +'<td>'+(r.certificateExpiry||"—")+'</td>'
+    +'<td>'+(toISODate(r.certificateExpiry)||"—")+'</td>'
     +'<td>'+escHtml(r.analystAllocated||"—")+'</td>'
     + milestoneCells
     +'<td><button class="sched-restore-btn" onclick="restoreScheduleClient('+r.id+')">↺ Restore</button></td>'
@@ -955,7 +972,7 @@ function renderSchedule(){
   if(VIEW!=="schedule") return;
   const q=((document.getElementById("sch-search")||{}).value||"").toLowerCase();
   const list=SCHEDULE.filter(r=>r.name.toLowerCase().includes(q))
-    .sort((a,b)=>(a.certificateExpiry||"9999").localeCompare(b.certificateExpiry||"9999"));
+    .sort((a,b)=>(toISODate(a.certificateExpiry)||"0000").localeCompare(toISODate(b.certificateExpiry)||"0000"));
   const archList=SCHEDULE_ARCHIVE.filter(r=>r.name.toLowerCase().includes(q))
     .sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||""));
   document.getElementById("scheduleview").innerHTML =
