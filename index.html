@@ -228,20 +228,32 @@
   .duebox .clr:hover{color:#ef4d5a}
   @media(max-width:720px){.who-chip .wt{display:none}}
 
-  /* ---------- verification schedule ---------- */
-  .sched-list{display:flex;flex-direction:column;gap:12px}
-  .sched-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
-  .sched-hd{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:12px}
-  .sched-name{flex:1;min-width:140px;font-size:15px}
-  .sched-date{display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:.08em;color:var(--ink-faint)}
-  .sched-date input{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
-    color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px 9px;color-scheme:dark}
-  .sched-derived{font-size:11px;color:var(--ink-faint);white-space:nowrap}
-  .sched-pills{display:flex;flex-wrap:wrap;gap:6px}
-  .mpill{font-size:10px;letter-spacing:.03em;padding:5px 10px;border-radius:99px;border:1px solid var(--line);
-    cursor:pointer;white-space:nowrap;color:var(--ink-faint);background:transparent;font-family:var(--mono)}
-  .mpill.yes{color:var(--done);border-color:rgba(63,191,107,.4);background:rgba(63,191,107,.08)}
-  @media(max-width:720px){.sched-hd{flex-direction:column;align-items:flex-start}}
+  /* ---------- verification schedule (table) ---------- */
+  .sched-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);max-height:70vh;overflow-y:auto}
+  .sched-table{border-collapse:collapse;width:max-content;min-width:100%;font-size:12px}
+  .sched-table th,.sched-table td{padding:8px 12px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+    white-space:nowrap;text-align:left}
+  .sched-table th{background:var(--panel-2);color:var(--ink-faint);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;position:sticky;top:0;z-index:2}
+  .sched-table tbody tr:hover td{background:rgba(232,212,77,.05)}
+  .sched-table th:first-child,.sched-table td:first-child{position:sticky;left:0;z-index:1;
+    background:var(--panel);border-right:1px solid var(--line2,var(--line))}
+  .sched-table th:first-child{z-index:3;background:var(--panel-2)}
+  .sched-table tbody tr:hover td:first-child{background:#1e1e24}
+  .sched-name-cell{min-width:170px;font-weight:700}
+  .sched-table input{background:transparent;border:1px solid transparent;border-radius:6px;color:var(--ink);
+    font-family:var(--mono);font-size:12px;padding:5px 7px;width:100%;min-width:110px;color-scheme:dark}
+  .sched-table input:hover,.sched-table input:focus{border-color:var(--line);background:var(--panel-2)}
+  .schedcell{cursor:pointer;text-align:center;font-size:10px;letter-spacing:.03em;color:var(--ink-faint)}
+  .schedcell.yes{background:rgba(63,191,107,.12);color:var(--done);font-weight:700}
+  .schedcell.no{background:rgba(239,77,90,.06)}
+  .schedcell.readonly{cursor:default}
+  .sched-arch-btn{background:transparent;border:1px solid rgba(63,191,107,.5);color:var(--done);border-radius:8px;
+    font-family:var(--mono);font-size:11px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+  .sched-arch-btn:hover{background:rgba(63,191,107,.1)}
+  .sched-restore-btn{background:transparent;border:1px solid var(--line);color:var(--ink-faint);border-radius:8px;
+    font-family:var(--mono);font-size:11px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+  .sched-restore-btn:hover{color:var(--ink);border-color:var(--ink-faint)}
 
   /* ---------- assign form / done / log ---------- */
   .frm{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:14px}
@@ -467,7 +479,7 @@ const SCHED_MILESTONES = [
   ["projectPlan","Project Plan"],["sharepoint","SharePoint"],["goodies","Goodies"],
   ["claimSheetsProvided","Claim Sheets Provided"],["samplesReceived","Samples Received"],
   ["outstandingCommunicated","Outstanding Communicated"],["samplesUploaded","Samples Uploaded"],
-  ["whatsappGroup","WhatsApp Group"],["onsiteScheduled","Onsite Scheduled"],
+  ["onsiteScheduled","Onsite Scheduled"],
   ["finalOutstandingSupplied","Final Outstanding Supplied"],["prelimIssued","Prelim Issued"],
   ["certificateIssued","Certificate Issued"]
 ];
@@ -869,14 +881,6 @@ function toggleSchedField(id,key){
   logEvent(ME,"Schedule milestone", r.name+" — "+key+" → "+r[key]);
   render(); queueSave();
 }
-function archiveScheduleClient(id){
-  const idx=SCHEDULE.findIndex(r=>String(r.id)===String(id)); if(idx<0) return;
-  const r=SCHEDULE[idx];
-  SCHEDULE.splice(idx,1);
-  SCHEDULE_ARCHIVE.push(Object.assign({},r,{archivedAt:nowStr()}));
-  logEvent(ME,"Schedule archived", r.name);
-  render(); queueSave();
-}
 function restoreScheduleClient(id){
   const idx=SCHEDULE_ARCHIVE.findIndex(r=>String(r.id)===String(id)); if(idx<0) return;
   const r=Object.assign({},SCHEDULE_ARCHIVE[idx]);
@@ -887,48 +891,73 @@ function restoreScheduleClient(id){
   render(); queueSave();
 }
 
-function scheduleRow(r){
-  const d=schedDaysToExpiry(r);
-  const der=schedDerived(r);
-  const cls = d===null ? "due-ok" : d<30 ? "due-over" : d<60 ? "due-soon" : "exp-ok";
-  const txt = d===null ? "no expiry set" : d<0 ? Math.abs(d)+"d overdue" : d+"d to expiry";
-  const pills = SCHED_MILESTONES.map(([k,label])=>
-    '<button class="mpill'+(r[k]==="Yes"?" yes":"")+'" onclick="toggleSchedField('+r.id+',\''+k+'\')">'+label+': '+(r[k]||"No")+'</button>'
-  ).join("");
-  return '<div class="sched-card">'
-    +'<div class="sched-hd">'
-      +'<div class="sched-name"><b>'+escHtml(r.name)+'</b></div>'
-      +'<label class="sched-date">Analyst allocated<input type="text" value="'+escHtml(r.analystAllocated||"")+'" placeholder="—" onchange="setSchedField('+r.id+',\'analystAllocated\',this.value)"></label>'
-      +'<span class="tag '+cls+'">'+txt+'</span>'
-      +'<label class="sched-date">Cert expiry<input type="date" value="'+(r.certificateExpiry||"")+'" onchange="setSchedField('+r.id+',\'certificateExpiry\',this.value)"></label>'
-      +'<span class="sched-derived">Onsite (60d): '+(der.onsiteDays60||"—")+'</span>'
-      +'<span class="sched-derived">File prep (90d): '+(der.filePrep90||"—")+'</span>'
-      +'<label class="sched-date">Date of issue<input type="date" value="'+(r.dateOfIssue||"")+'" onchange="setSchedField('+r.id+',\'dateOfIssue\',this.value)"></label>'
-      +'<button class="btn-ghost" style="border-color:rgba(63,191,107,.5);color:var(--done)" onclick="archiveScheduleClient('+r.id+')">✓ Mark Complete / Archive</button>'
-    +'</div>'
-    +'<div class="sched-pills">'+pills+'</div>'
-  +'</div>';
+const SCHED_EXTRA_COLS = ["Days to Expiry","Certificate Expiry","Analyst Allocated"];
+let archivePromptId = null;   // schedule row id currently showing the "new cert expiry" prompt
+function scheduleTableHtml(rows, archived){
+  const milestoneLabels = SCHED_MILESTONES.map(([,label])=>label);
+  const headCols = SCHED_EXTRA_COLS.concat(milestoneLabels).concat([archived?"Restore":"Archive"]);
+  const thead = '<tr><th>Name</th>'+headCols.map(h=>'<th>'+h+'</th>').join("")+'</tr>';
+  const trs = rows.map(archived?scheduleArchiveRowTr:scheduleRowTr).join("");
+  const body = trs || '<tr><td colspan="'+(headCols.length+1)+'" style="text-align:center;color:var(--ink-faint);padding:24px;white-space:normal">'
+    +(archived?"No completed verifications yet.":"No clients match.")+'</td></tr>';
+  return '<div class="sched-wrap"><table class="sched-table"><thead>'+thead+'</thead><tbody>'+body+'</tbody></table></div>';
 }
-function scheduleArchiveRow(r){
-  const pills = SCHED_MILESTONES.map(([k,label])=>
-    '<span class="mpill'+(r[k]==="Yes"?" yes":"")+'" style="cursor:default">'+label+': '+(r[k]||"No")+'</span>'
+function scheduleRowTr(r){
+  const d=schedDaysToExpiry(r);
+  const cls = d===null ? "due-ok" : d<30 ? "due-over" : d<60 ? "due-soon" : "exp-ok";
+  const txt = d===null ? "no expiry" : d<0 ? Math.abs(d)+"d overdue" : d+"d";
+  const milestoneCells = SCHED_MILESTONES.map(([k])=>
+    '<td class="schedcell '+(r[k]==="Yes"?"yes":"no")+'" onclick="toggleSchedField('+r.id+',\''+k+'\')">'+(r[k]||"No")+'</td>'
   ).join("");
-  return '<div class="sched-card">'
-    +'<div class="sched-hd">'
-      +'<div class="sched-name"><b>'+escHtml(r.name)+'</b></div>'
-      +'<span class="tag due-ok">Cert expiry: '+(r.certificateExpiry||"—")+'</span>'
-      +'<span class="sched-derived">Archived: '+(r.archivedAt||"")+'</span>'
-      +'<button class="btn-ghost" onclick="restoreScheduleClient('+r.id+')">↺ Restore</button>'
-    +'</div>'
-    +'<div class="sched-pills">'+pills+'</div>'
-  +'</div>';
+  const archiveCell = String(archivePromptId)===String(r.id)
+    ? '<td><input type="date" id="arch-exp-'+r.id+'" style="width:126px" placeholder="new expiry, blank=lost">'
+        +'<button class="sched-arch-btn" onclick="confirmArchive('+r.id+')">✓</button>'
+        +'<button class="sched-restore-btn" onclick="cancelArchive()">✕</button></td>'
+    : '<td><button class="sched-arch-btn" onclick="askArchive('+r.id+')">✓ Archive</button></td>';
+  return '<tr>'
+    +'<td class="sched-name-cell">'+escHtml(r.name)+'</td>'
+    +'<td><span class="tag '+cls+'">'+txt+'</span></td>'
+    +'<td><input type="date" value="'+(r.certificateExpiry||"")+'" onchange="setSchedField('+r.id+',\'certificateExpiry\',this.value)"></td>'
+    +'<td><input type="text" value="'+escHtml(r.analystAllocated||"")+'" placeholder="—" onchange="setSchedField('+r.id+',\'analystAllocated\',this.value)"></td>'
+    + milestoneCells
+    + archiveCell
+  +'</tr>';
+}
+function scheduleArchiveRowTr(r){
+  const milestoneCells = SCHED_MILESTONES.map(([k])=>
+    '<td class="schedcell readonly '+(r[k]==="Yes"?"yes":"no")+'">'+(r[k]||"No")+'</td>'
+  ).join("");
+  return '<tr>'
+    +'<td class="sched-name-cell">'+escHtml(r.name)+'</td>'
+    +'<td><span class="tag due-ok">Archived '+(r.archivedAt||"")+'</span></td>'
+    +'<td>'+(r.certificateExpiry||"—")+'</td>'
+    +'<td>'+escHtml(r.analystAllocated||"—")+'</td>'
+    + milestoneCells
+    +'<td><button class="sched-restore-btn" onclick="restoreScheduleClient('+r.id+')">↺ Restore</button></td>'
+  +'</tr>';
+}
+function askArchive(id){ archivePromptId=id; render(); setTimeout(()=>{ const el=document.getElementById("arch-exp-"+id); if(el) el.focus(); },0); }
+function cancelArchive(){ archivePromptId=null; render(); }
+function confirmArchive(id){
+  const el=document.getElementById("arch-exp-"+id);
+  const newExp=(el && el.value) ? el.value : "";
+  archivePromptId=null;
+  const idx=SCHEDULE.findIndex(r=>String(r.id)===String(id)); if(idx<0) return;
+  const r=SCHEDULE[idx];
+  r.certificateExpiry=newExp;
+  r.updatedAt=nowStr();
+  SCHEDULE.splice(idx,1);
+  SCHEDULE_ARCHIVE.push(Object.assign({},r,{archivedAt:nowStr()}));
+  logEvent(ME,"Schedule archived", r.name+(newExp?" — next cert expiry "+newExp:" — client lost, no renewal"));
+  render(); queueSave();
 }
 function renderSchedule(){
   if(VIEW!=="schedule") return;
-  const list=SCHEDULE.slice().sort((a,b)=>(a.certificateExpiry||"9999").localeCompare(b.certificateExpiry||"9999"));
-  const rows=list.map(scheduleRow).join("") || '<div class="none" style="padding:30px;text-align:center">No clients on the schedule yet.</div>';
-  const archRows=SCHEDULE_ARCHIVE.slice().sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||"")).map(scheduleArchiveRow).join("")
-    || '<div class="none" style="padding:30px;text-align:center">No completed verifications yet.</div>';
+  const q=((document.getElementById("sch-search")||{}).value||"").toLowerCase();
+  const list=SCHEDULE.filter(r=>r.name.toLowerCase().includes(q))
+    .sort((a,b)=>(a.certificateExpiry||"9999").localeCompare(b.certificateExpiry||"9999"));
+  const archList=SCHEDULE_ARCHIVE.filter(r=>r.name.toLowerCase().includes(q))
+    .sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||""));
   document.getElementById("scheduleview").innerHTML =
     '<div class="d-card" style="margin-bottom:14px"><h3>+ ADD CLIENT</h3>'
       +'<div class="frm" style="grid-template-columns:2fr 1fr auto">'
@@ -937,12 +966,13 @@ function renderSchedule(){
         +'<label><span style="opacity:0">Add</span><button class="btn-primary" onclick="addScheduleClient()">Add</button></label>'
       +'</div>'
     +'</div>'
+    +'<div class="search"><input id="sch-search" placeholder="Search client…" oninput="render()"></div>'
     +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
       +'<button class="btn-ghost" onclick="toggleSchedArchive()">'+(schedShowArchive?"← Back to active schedule":"Completed Verifications →")+'</button>'
     +'</div>'
     + (schedShowArchive
-        ? '<div class="d-card"><h3>COMPLETED VERIFICATIONS</h3><div class="sched-list" style="margin-top:12px">'+archRows+'</div></div>'
-        : '<div class="sched-list">'+rows+'</div>');
+        ? '<h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.13em;color:var(--ink-dim)">COMPLETED VERIFICATIONS</h3>'+scheduleTableHtml(archList, true)
+        : scheduleTableHtml(list, false));
 }
 
 /* ===== LOG view ===== */
