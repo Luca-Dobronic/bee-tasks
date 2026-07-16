@@ -970,7 +970,14 @@ function confirmArchive(id){
 }
 function renderSchedule(){
   if(VIEW!=="schedule") return;
-  const q=((document.getElementById("sch-search")||{}).value||"").toLowerCase();
+  // renderSchedule rebuilds the whole view via innerHTML on every toggle/edit —
+  // capture the table's scroll position first so a click far into the milestone
+  // columns doesn't snap the view back to the top-left on every click.
+  const prevWrap = document.querySelector("#scheduleview .sched-wrap");
+  const scrollState = prevWrap ? {left:prevWrap.scrollLeft, top:prevWrap.scrollTop} : null;
+  const searchVal = (document.getElementById("sch-search")||{}).value || "";
+
+  const q=searchVal.toLowerCase();
   const list=SCHEDULE.filter(r=>r.name.toLowerCase().includes(q))
     .sort((a,b)=>(toISODate(a.certificateExpiry)||"0000").localeCompare(toISODate(b.certificateExpiry)||"0000"));
   const archList=SCHEDULE_ARCHIVE.filter(r=>r.name.toLowerCase().includes(q))
@@ -983,13 +990,18 @@ function renderSchedule(){
         +'<label><span style="opacity:0">Add</span><button class="btn-primary" onclick="addScheduleClient()">Add</button></label>'
       +'</div>'
     +'</div>'
-    +'<div class="search"><input id="sch-search" placeholder="Search client…" oninput="render()"></div>'
+    +'<div class="search"><input id="sch-search" placeholder="Search client…" value="'+escHtml(searchVal)+'" oninput="render()"></div>'
     +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
       +'<button class="btn-ghost" onclick="toggleSchedArchive()">'+(schedShowArchive?"← Back to active schedule":"Completed Verifications →")+'</button>'
     +'</div>'
     + (schedShowArchive
         ? '<h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.13em;color:var(--ink-dim)">COMPLETED VERIFICATIONS</h3>'+scheduleTableHtml(archList, true)
         : scheduleTableHtml(list, false));
+
+  if(scrollState){
+    const newWrap = document.querySelector("#scheduleview .sched-wrap");
+    if(newWrap){ newWrap.scrollLeft=scrollState.left; newWrap.scrollTop=scrollState.top; }
+  }
 }
 
 /* ===== LOG view ===== */
