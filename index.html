@@ -220,12 +220,28 @@
   .tag.due-over{color:#fff;background:#ef4d5a;border-color:#ef4d5a;font-weight:700}
   .tag.due-soon{color:#111;background:#e0a53b;border-color:#e0a53b;font-weight:700}
   .tag.due-ok{color:var(--ink-faint)}
+  .tag.exp-ok{color:var(--done)}
   .duebox{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:12px;color:var(--ink-faint)}
   .duebox input[type=date]{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
     color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px 10px;color-scheme:dark}
   .duebox .clr{background:none;border:none;color:var(--ink-faint);font-family:var(--mono);font-size:11px;cursor:pointer}
   .duebox .clr:hover{color:#ef4d5a}
   @media(max-width:720px){.who-chip .wt{display:none}}
+
+  /* ---------- verification schedule ---------- */
+  .sched-list{display:flex;flex-direction:column;gap:12px}
+  .sched-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .sched-hd{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:12px}
+  .sched-name{flex:1;min-width:140px;font-size:15px}
+  .sched-date{display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:.08em;color:var(--ink-faint)}
+  .sched-date input{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px 9px;color-scheme:dark}
+  .sched-derived{font-size:11px;color:var(--ink-faint);white-space:nowrap}
+  .sched-pills{display:flex;flex-wrap:wrap;gap:6px}
+  .mpill{font-size:10px;letter-spacing:.03em;padding:5px 10px;border-radius:99px;border:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;color:var(--ink-faint);background:transparent;font-family:var(--mono)}
+  .mpill.yes{color:var(--done);border-color:rgba(63,191,107,.4);background:rgba(63,191,107,.08)}
+  @media(max-width:720px){.sched-hd{flex-direction:column;align-items:flex-start}}
 
   /* ---------- assign form / done / log ---------- */
   .frm{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:14px}
@@ -274,7 +290,8 @@
     </button>
     <nav class="nav">
       <button id="nav-dash" onclick="setView('dash')">DASHBOARD</button><button id="nav-board" class="active" onclick="setView('board')">BOARD</button>
-      <button id="nav-assign" onclick="setView('assign')">ASSIGN</button><button id="nav-done" onclick="setView('done')">DONE</button><button id="nav-log" onclick="setView('log')">LOG</button>
+      <button id="nav-assign" onclick="setView('assign')">ASSIGN</button><button id="nav-done" onclick="setView('done')">DONE</button>
+      <button id="nav-schedule" onclick="setView('schedule')">SCHEDULE</button><button id="nav-log" onclick="setView('log')">LOG</button>
     </nav>
   </div>
 </header>
@@ -297,6 +314,7 @@
   <div id="dash" style="display:none"></div>
   <div id="assignview" style="display:none"></div>
   <div id="doneview" style="display:none"></div>
+  <div id="scheduleview" style="display:none"></div>
   <div id="logview" style="display:none"></div>
   <div id="boardview">
     <div class="search"><input id="search" placeholder="Search client…" oninput="render()"></div>
@@ -309,6 +327,7 @@
   <button id="bnav-board" class="active" onclick="setView('board')"><span class="ic">▤</span>Board</button>
   <button id="bnav-assign" onclick="setView('assign')"><span class="ic">✎</span>Assign</button>
   <button id="bnav-done" onclick="setView('done')"><span class="ic">✓</span>Done</button>
+  <button id="bnav-schedule" onclick="setView('schedule')"><span class="ic">📅</span>Schedule</button>
   <button id="bnav-log" onclick="setView('log')"><span class="ic">☰</span>Log</button>
 </div></nav>
 
@@ -355,12 +374,15 @@ function stateToPayload(){
     walk(el.comments,"");
   }));
   const clientinfo=CLIENTS.map(c=>Object.assign({client:c.name},clientInfo(c)));
-  return {elements,comments,log:LOG,clientinfo,archive:ARCHIVE};
+  return {elements,comments,log:LOG,clientinfo,archive:ARCHIVE,schedule:SCHEDULE,scheduleArchive:SCHEDULE_ARCHIVE};
 }
 function payloadToState(data){
   if(!data||!data.elements) return;
   if(Array.isArray(data.log)) LOG=data.log;
   if(Array.isArray(data.archive)) ARCHIVE=data.archive;
+  if(Array.isArray(data.schedule)) SCHEDULE=data.schedule;
+  if(Array.isArray(data.scheduleArchive)) SCHEDULE_ARCHIVE=data.scheduleArchive;
+  SCHEDULE.concat(SCHEDULE_ARCHIVE).forEach(r=>{ if(+r.id>=nextSchedId) nextSchedId=+r.id+1; });
   const byClient={};
   data.elements.forEach(r=>{
     if(!byClient[r.client]) byClient[r.client]=init({});
@@ -436,6 +458,45 @@ function setMe(p){ ME=p; try{ localStorage.setItem("bee_me",p); }catch(e){} rend
 const INFO_DEFAULT=()=>({fye:"",type:"",sector:"",drive:"",period:""});
 let ARCHIVE=[];   // {client, period, closedOn, pillar, status, who, due, comments}
 function clientInfo(c){ if(!c.info) c.info=INFO_DEFAULT(); return c.info; }
+
+/* ===== verification schedule (separate from the Tasks board) ===== */
+const SCHED_MILESTONES = [
+  ["documentChecklist","Document Checklist"],["calculator","Calculator"],["dataSheets","Data Sheets"],
+  ["clientInfoSheetProvided","Client Info Sheet Provided"],
+  ["verificationInvoiceReceived","Verification Invoice Received"],["paymentForVerification","Payment For Verification"],
+  ["projectPlan","Project Plan"],["sharepoint","SharePoint"],["goodies","Goodies"],
+  ["claimSheetsProvided","Claim Sheets Provided"],["samplesReceived","Samples Received"],
+  ["outstandingCommunicated","Outstanding Communicated"],["samplesUploaded","Samples Uploaded"],
+  ["whatsappGroup","WhatsApp Group"],["onsiteScheduled","Onsite Scheduled"],
+  ["finalOutstandingSupplied","Final Outstanding Supplied"],["prelimIssued","Prelim Issued"],
+  ["certificateIssued","Certificate Issued"]
+];
+let SCHEDULE=[], SCHEDULE_ARCHIVE=[];
+let nextSchedId=1;
+let schedShowArchive=false;
+function schedNew(name,certificateExpiry){
+  const row={id:nextSchedId++,name,certificateExpiry,onsiteDays60:"",filePrep90:"",dateOfIssue:"",
+    createdAt:nowStr(),updatedAt:nowStr()};
+  SCHED_MILESTONES.forEach(([k])=>row[k]="No");
+  return row;
+}
+// mirrors Code.gs's withScheduleDerived — recomputed client-side too, so the
+// board shows correct values immediately without waiting on a save round-trip.
+function schedDerived(row){
+  if(!row.certificateExpiry) return {onsiteDays60:"",filePrep90:""};
+  const exp=new Date(row.certificateExpiry);
+  if(isNaN(exp)) return {onsiteDays60:"",filePrep90:""};
+  const fmt=d=>d.toISOString().slice(0,10);
+  const d60=new Date(exp); d60.setDate(d60.getDate()-60);
+  const d90=new Date(exp); d90.setDate(d90.getDate()-90);
+  return {onsiteDays60:fmt(d60),filePrep90:fmt(d90)};
+}
+function schedDaysToExpiry(row){
+  if(!row.certificateExpiry) return null;
+  const exp=new Date(row.certificateExpiry);
+  if(isNaN(exp)) return null;
+  return Math.round((exp-TODAY())/86400000);
+}
 function init(overrides){
   const p={}; PILLARS.forEach(name=>{ p[name]={status:"Not started",who:"Both",due:"",comments:[]}; });
   Object.keys(overrides||{}).forEach(k=>{ if(p[k]) p[k]=Object.assign(p[k],overrides[k]); });
@@ -560,11 +621,12 @@ const VIEW_META={
   board:{t:"TASK BOARD",s:"CLIENT → PILLARS → PER-ELEMENT COMMENT THREADS"},
   assign:{t:"ASSIGN",s:"ASSIGN AN ELEMENT — BOTH WAYS"},
   done:{t:"DONE",s:"COMPLETED & READY-FOR-REVIEW ELEMENTS"},
+  schedule:{t:"VERIFICATION SCHEDULE",s:"CLIENTS IN THE ONSITE PROCESS"},
   log:{t:"ACTIVITY LOG",s:"FULL AUDIT TRAIL"}
 };
 function setView(v){
   VIEW=v;
-  const ids={board:"boardview",dash:"dash",assign:"assignview",done:"doneview",log:"logview"};
+  const ids={board:"boardview",dash:"dash",assign:"assignview",done:"doneview",schedule:"scheduleview",log:"logview"};
   Object.entries(ids).forEach(([k,id])=>{ const e=document.getElementById(id); if(e) e.style.display = k===v?"":"none"; });
   document.getElementById("viewTitle").textContent = VIEW_META[v].t;
   document.getElementById("viewSub").textContent = VIEW_META[v].s;
@@ -572,7 +634,7 @@ function setView(v){
   const pf=document.getElementById("pfilter"); if(pf) pf.style.display = (v==="board"||v==="dash")?"":"none";
   const ab=document.getElementById("alerts"); if(ab) ab.style.display = (v==="dash")?"none":"";
   ["nav","bnav"].forEach(pfx=>{
-    ["dash","board","assign","done","log"].forEach(k=>{
+    ["dash","board","assign","done","schedule","log"].forEach(k=>{
       const el=document.getElementById(pfx+"-"+k); if(el) el.classList.toggle("active",k===v);
     });
   });
@@ -608,6 +670,7 @@ function render(){
   renderDash();
   renderAssign();
   renderDone();
+  renderSchedule();
   renderLog();
 
   // top progress = approved / scored pillars (General + Calc & Checklist excluded)
@@ -774,6 +837,112 @@ function renderDone(){
     +'<div class="d-card"><h3>ARCHIVE — completed periods</h3><ul class="d-out">'
       +(archHtml||'<div class="none">No archived periods yet. Close one via a client\'s ⚙ settings.</div>')
     +'</ul></div>';
+}
+
+/* ===== SCHEDULE view (verification onsite pipeline — separate from the Tasks board) ===== */
+function findSched(id){ return SCHEDULE.find(r=>String(r.id)===String(id)); }
+function toggleSchedArchive(){ schedShowArchive=!schedShowArchive; render(); }
+
+function addScheduleClient(){
+  const name=(document.getElementById("sch-name").value||"").trim();
+  const exp=document.getElementById("sch-exp").value||"";
+  if(!name){ alert("Enter a client name."); return; }
+  const row=schedNew(name,exp);
+  Object.assign(row, schedDerived(row));
+  SCHEDULE.push(row);
+  logEvent(ME,"Schedule: client added", name+(exp?" — cert expiry "+exp:""));
+  document.getElementById("sch-name").value=""; document.getElementById("sch-exp").value="";
+  render(); queueSave();
+}
+function setSchedField(id,key,val){
+  const r=findSched(id); if(!r) return;
+  r[key]=val;
+  if(key==="certificateExpiry") Object.assign(r, schedDerived(r));
+  r.updatedAt=nowStr();
+  logEvent(ME,"Schedule updated", r.name+" — "+key+" → "+val);
+  render(); queueSave();
+}
+function toggleSchedField(id,key){
+  const r=findSched(id); if(!r) return;
+  r[key]=(r[key]==="Yes")?"No":"Yes";
+  r.updatedAt=nowStr();
+  logEvent(ME,"Schedule milestone", r.name+" — "+key+" → "+r[key]);
+  render(); queueSave();
+}
+function archiveScheduleClient(id){
+  const idx=SCHEDULE.findIndex(r=>String(r.id)===String(id)); if(idx<0) return;
+  const r=SCHEDULE[idx];
+  SCHEDULE.splice(idx,1);
+  SCHEDULE_ARCHIVE.push(Object.assign({},r,{archivedAt:nowStr()}));
+  logEvent(ME,"Schedule archived", r.name);
+  render(); queueSave();
+}
+function restoreScheduleClient(id){
+  const idx=SCHEDULE_ARCHIVE.findIndex(r=>String(r.id)===String(id)); if(idx<0) return;
+  const r=Object.assign({},SCHEDULE_ARCHIVE[idx]);
+  delete r.archivedAt;
+  SCHEDULE_ARCHIVE.splice(idx,1);
+  SCHEDULE.push(r);
+  logEvent(ME,"Schedule restored", r.name);
+  render(); queueSave();
+}
+
+function scheduleRow(r){
+  const d=schedDaysToExpiry(r);
+  const der=schedDerived(r);
+  const cls = d===null ? "due-ok" : d<30 ? "due-over" : d<60 ? "due-soon" : "exp-ok";
+  const txt = d===null ? "no expiry set" : d<0 ? Math.abs(d)+"d overdue" : d+"d to expiry";
+  const pills = SCHED_MILESTONES.map(([k,label])=>
+    '<button class="mpill'+(r[k]==="Yes"?" yes":"")+'" onclick="toggleSchedField('+r.id+',\''+k+'\')">'+label+': '+(r[k]||"No")+'</button>'
+  ).join("");
+  return '<div class="sched-card">'
+    +'<div class="sched-hd">'
+      +'<div class="sched-name"><b>'+escHtml(r.name)+'</b></div>'
+      +'<label class="sched-date">Analyst allocated<input type="text" value="'+escHtml(r.analystAllocated||"")+'" placeholder="—" onchange="setSchedField('+r.id+',\'analystAllocated\',this.value)"></label>'
+      +'<span class="tag '+cls+'">'+txt+'</span>'
+      +'<label class="sched-date">Cert expiry<input type="date" value="'+(r.certificateExpiry||"")+'" onchange="setSchedField('+r.id+',\'certificateExpiry\',this.value)"></label>'
+      +'<span class="sched-derived">Onsite (60d): '+(der.onsiteDays60||"—")+'</span>'
+      +'<span class="sched-derived">File prep (90d): '+(der.filePrep90||"—")+'</span>'
+      +'<label class="sched-date">Date of issue<input type="date" value="'+(r.dateOfIssue||"")+'" onchange="setSchedField('+r.id+',\'dateOfIssue\',this.value)"></label>'
+      +'<button class="btn-ghost" style="border-color:rgba(63,191,107,.5);color:var(--done)" onclick="archiveScheduleClient('+r.id+')">✓ Mark Complete / Archive</button>'
+    +'</div>'
+    +'<div class="sched-pills">'+pills+'</div>'
+  +'</div>';
+}
+function scheduleArchiveRow(r){
+  const pills = SCHED_MILESTONES.map(([k,label])=>
+    '<span class="mpill'+(r[k]==="Yes"?" yes":"")+'" style="cursor:default">'+label+': '+(r[k]||"No")+'</span>'
+  ).join("");
+  return '<div class="sched-card">'
+    +'<div class="sched-hd">'
+      +'<div class="sched-name"><b>'+escHtml(r.name)+'</b></div>'
+      +'<span class="tag due-ok">Cert expiry: '+(r.certificateExpiry||"—")+'</span>'
+      +'<span class="sched-derived">Archived: '+(r.archivedAt||"")+'</span>'
+      +'<button class="btn-ghost" onclick="restoreScheduleClient('+r.id+')">↺ Restore</button>'
+    +'</div>'
+    +'<div class="sched-pills">'+pills+'</div>'
+  +'</div>';
+}
+function renderSchedule(){
+  if(VIEW!=="schedule") return;
+  const list=SCHEDULE.slice().sort((a,b)=>(a.certificateExpiry||"9999").localeCompare(b.certificateExpiry||"9999"));
+  const rows=list.map(scheduleRow).join("") || '<div class="none" style="padding:30px;text-align:center">No clients on the schedule yet.</div>';
+  const archRows=SCHEDULE_ARCHIVE.slice().sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||"")).map(scheduleArchiveRow).join("")
+    || '<div class="none" style="padding:30px;text-align:center">No completed verifications yet.</div>';
+  document.getElementById("scheduleview").innerHTML =
+    '<div class="d-card" style="margin-bottom:14px"><h3>+ ADD CLIENT</h3>'
+      +'<div class="frm" style="grid-template-columns:2fr 1fr auto">'
+        +'<label>Client name<input id="sch-name" placeholder="e.g. Acme (Pty) Ltd"></label>'
+        +'<label>Certificate expiry<input type="date" id="sch-exp"></label>'
+        +'<label><span style="opacity:0">Add</span><button class="btn-primary" onclick="addScheduleClient()">Add</button></label>'
+      +'</div>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+      +'<button class="btn-ghost" onclick="toggleSchedArchive()">'+(schedShowArchive?"← Back to active schedule":"Completed Verifications →")+'</button>'
+    +'</div>'
+    + (schedShowArchive
+        ? '<div class="d-card"><h3>COMPLETED VERIFICATIONS</h3><div class="sched-list" style="margin-top:12px">'+archRows+'</div></div>'
+        : '<div class="sched-list">'+rows+'</div>');
 }
 
 /* ===== LOG view ===== */

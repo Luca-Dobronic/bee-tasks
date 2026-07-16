@@ -23,6 +23,12 @@ const CM_HEAD = ["id","client","pillar","parentId","who","when","text","flag","d
 const LG_HEAD = ["when","who","action","detail"];
 const CI_HEAD = ["client","period","fye","type","sector","drive"];
 const AR_HEAD = ["client","period","closedOn","pillar","status","who","due","comments"];
+const SCHED_HEAD = ["id","name","certificateExpiry","onsiteDays60","filePrep90","documentChecklist",
+  "calculator","dataSheets","analystAllocated","clientInfoSheetProvided","verificationInvoiceReceived",
+  "paymentForVerification","projectPlan","sharepoint","goodies","claimSheetsProvided","samplesReceived",
+  "outstandingCommunicated","samplesUploaded","whatsappGroup","onsiteScheduled","finalOutstandingSupplied",
+  "prelimIssued","certificateIssued","dateOfIssue","createdAt","updatedAt"];
+const SCHARCH_HEAD = SCHED_HEAD.concat(["archivedAt"]);
 
 function ss(){ return SpreadsheetApp.openById(SHEET_ID); }
 function tab(name, head){
@@ -51,7 +57,9 @@ function doGet(){
                  comments: readTab("Comments", CM_HEAD),
                  log:      readTab("Log", LG_HEAD),
                  clientinfo: readTab("ClientInfo", CI_HEAD),
-                 archive:  readTab("Archive", AR_HEAD) };
+                 archive:  readTab("Archive", AR_HEAD),
+                 schedule: readTab("Schedule", SCHED_HEAD),
+                 scheduleArchive: readTab("ScheduleArchive", SCHARCH_HEAD) };
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -66,6 +74,8 @@ function doPost(e){
     if(data.log)      writeTab("Log", LG_HEAD, data.log.slice(0,500));
     if(data.clientinfo) writeTab("ClientInfo", CI_HEAD, data.clientinfo);
     if(data.archive)  writeTab("Archive", AR_HEAD, data.archive);
+    if(data.schedule) writeTab("Schedule", SCHED_HEAD, withScheduleDerived(data.schedule));
+    if(data.scheduleArchive) writeTab("ScheduleArchive", SCHARCH_HEAD, data.scheduleArchive);
     return ContentService.createTextOutput(JSON.stringify({ok:true}))
       .setMimeType(ContentService.MimeType.JSON);
   }catch(err){
@@ -74,6 +84,25 @@ function doPost(e){
   }finally{
     lock.releaseLock();
   }
+}
+
+// onsiteDays60 / filePrep90 are always derived from certificateExpiry, never
+// accepted as manual input — recomputed here on every write so they can't drift.
+function withScheduleDerived(rows){
+  const tz = Session.getScriptTimeZone();
+  return (rows||[]).map(r=>{
+    const o = Object.assign({}, r);
+    const exp = o.certificateExpiry ? new Date(o.certificateExpiry) : null;
+    if(exp && !isNaN(exp)){
+      const d60 = new Date(exp); d60.setDate(d60.getDate()-60);
+      const d90 = new Date(exp); d90.setDate(d90.getDate()-90);
+      o.onsiteDays60 = Utilities.formatDate(d60, tz, "yyyy-MM-dd");
+      o.filePrep90   = Utilities.formatDate(d90, tz, "yyyy-MM-dd");
+    } else {
+      o.onsiteDays60 = ""; o.filePrep90 = "";
+    }
+    return o;
+  });
 }
 
 /**
