@@ -661,7 +661,7 @@ function setView(v){
   document.getElementById("viewSub").textContent = VIEW_META[v].s;
   // person filter only meaningful on board + dash
   const pf=document.getElementById("pfilter"); if(pf) pf.style.display = (v==="board"||v==="dash")?"":"none";
-  const ab=document.getElementById("alerts"); if(ab) ab.style.display = (v==="dash")?"none":"";
+  const ab=document.getElementById("alerts"); if(ab) ab.style.display = (v==="board")?"":"none";
   ["nav","bnav"].forEach(pfx=>{
     ["dash","board","assign","done","schedule","log"].forEach(k=>{
       const el=document.getElementById(pfx+"-"+k); if(el) el.classList.toggle("active",k===v);
