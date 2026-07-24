@@ -422,7 +422,7 @@ function payloadToState(data){
     if(r.parentId && nodes[r.parentId]) nodes[r.parentId].replies.push(n);
     else if(byClient[r.client] && byClient[r.client][r.pillar]) byClient[r.client][r.pillar].comments.push(n);
   });
-  const infoBy={}; (data.clientinfo||[]).forEach(r=>{ infoBy[r.client]={period:r.period||"",fye:r.fye||"",type:r.type||"",sector:r.sector||"",drive:r.drive||""}; });
+  const infoBy={}; (data.clientinfo||[]).forEach(r=>{ infoBy[r.client]={period:r.period||"",fye:r.fye||"",type:r.type||"",sector:r.sector||"",drive:r.drive||"",stage:r.stage||""}; });
   CLIENTS = Object.keys(byClient).map(name=>({name,p:byClient[name],info:infoBy[name]||INFO_DEFAULT()}));
 }
 
