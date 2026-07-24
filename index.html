@@ -212,6 +212,7 @@
   .stagesel.st3{color:#3fc79a;border-color:rgba(63,199,154,.45)}
   .stagesel.st4{color:#3fcf7e;border-color:rgba(63,207,126,.45)}
   .stagesel.st5{color:var(--done);border-color:rgba(63,191,107,.45)}
+  .stagesel.stY{color:var(--accent);border-color:rgba(232,212,77,.45)}
   .drv{text-decoration:none;font-size:14px}
   .gear{background:transparent;border:1px solid var(--line);color:var(--ink-faint);border-radius:8px;
     font-size:13px;padding:4px 9px;cursor:pointer}
@@ -478,7 +479,12 @@ function setMe(p){ ME=p; try{ localStorage.setItem("bee_me",p); }catch(e){} rend
 
 /* ===== client info + period archive ===== */
 const INFO_DEFAULT=()=>({fye:"",type:"",sector:"",drive:"",period:"",stage:""});
-const STAGES=["On Boarding","Waiting on Sampling","Providing Sample","Conducting On-Site","Providing Final Outstanding","Waiting on Prelim"];
+const STAGES=["SnapShot","On Boarding","Waiting on Sampling","Providing Sample","Conducting On-Site","Providing Final Outstanding","Waiting on Prelim"];
+// name-based, not index-based, so inserting/reordering stages never reshuffles
+// existing colors — SnapShot is a neutral checkpoint, not part of the blue→green
+// progression, so it gets its own color rather than a slot in that gradient.
+const STAGE_CLASS={"SnapShot":"stY","On Boarding":"st0","Waiting on Sampling":"st1","Providing Sample":"st2",
+  "Conducting On-Site":"st3","Providing Final Outstanding":"st4","Waiting on Prelim":"st5"};
 let ARCHIVE=[];   // {client, period, closedOn, pillar, status, who, due, comments}
 function clientInfo(c){ if(!c.info) c.info=INFO_DEFAULT(); return c.info; }
 
@@ -736,7 +742,7 @@ function render(){
     return '<div class="client '+collapsed+'">'
       +'<div class="client-hd" onclick="toggleClient('+ci+')">'
         +'<span class="chev">▼</span><h2>'+escHtml(c.name)+'</h2>'
-        +'<select class="stagesel'+(inf.stage?' st'+STAGES.indexOf(inf.stage):'')+'" onclick="event.stopPropagation()" onchange="setStage('+ci+',this.value)">'
+        +'<select class="stagesel'+(inf.stage&&STAGE_CLASS[inf.stage]?' '+STAGE_CLASS[inf.stage]:'')+'" onclick="event.stopPropagation()" onchange="setStage('+ci+',this.value)">'
           +'<option value=""'+(!inf.stage?' selected':'')+'>— Stage —</option>'
           +STAGES.map(s=>'<option'+(inf.stage===s?' selected':'')+'>'+escHtml(s)+'</option>').join("")
         +'</select>'
