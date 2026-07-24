@@ -202,6 +202,16 @@
   .me .pchip{padding:4px 8px}
   @media(max-width:720px){.me .plabel{display:none}}
   .cinfo{font-size:11px;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+  .stagesel{font-size:11px;background:var(--panel);color:var(--ink-dim);border:1px solid var(--line);border-radius:8px;padding:4px 6px;max-width:170px}
+  .stagesel:hover{border-color:var(--accent)}
+  @media(max-width:720px){.stagesel{max-width:110px}}
+  /* stage progression: blue (just started) through teal to green (closest to done) — no red/amber */
+  .stagesel.st0{color:#5b8cff;border-color:rgba(91,140,255,.45)}
+  .stagesel.st1{color:#4fa8dd;border-color:rgba(79,168,221,.45)}
+  .stagesel.st2{color:#43b8b3;border-color:rgba(67,184,179,.45)}
+  .stagesel.st3{color:#3fc79a;border-color:rgba(63,199,154,.45)}
+  .stagesel.st4{color:#3fcf7e;border-color:rgba(63,207,126,.45)}
+  .stagesel.st5{color:var(--done);border-color:rgba(63,191,107,.45)}
   .drv{text-decoration:none;font-size:14px}
   .gear{background:transparent;border:1px solid var(--line);color:var(--ink-faint);border-radius:8px;
     font-size:13px;padding:4px 9px;cursor:pointer}
@@ -467,7 +477,8 @@ try{ ME=localStorage.getItem("bee_me")||"Edrich"; }catch(e){}
 function setMe(p){ ME=p; try{ localStorage.setItem("bee_me",p); }catch(e){} render(); }
 
 /* ===== client info + period archive ===== */
-const INFO_DEFAULT=()=>({fye:"",type:"",sector:"",drive:"",period:""});
+const INFO_DEFAULT=()=>({fye:"",type:"",sector:"",drive:"",period:"",stage:""});
+const STAGES=["On Boarding","Waiting on Sampling","Providing Sample","Conducting On-Site","Providing Final Outstanding","Waiting on Prelim"];
 let ARCHIVE=[];   // {client, period, closedOn, pillar, status, who, due, comments}
 function clientInfo(c){ if(!c.info) c.info=INFO_DEFAULT(); return c.info; }
 
@@ -725,6 +736,10 @@ function render(){
     return '<div class="client '+collapsed+'">'
       +'<div class="client-hd" onclick="toggleClient('+ci+')">'
         +'<span class="chev">▼</span><h2>'+escHtml(c.name)+'</h2>'
+        +'<select class="stagesel'+(inf.stage?' st'+STAGES.indexOf(inf.stage):'')+'" onclick="event.stopPropagation()" onchange="setStage('+ci+',this.value)">'
+          +'<option value=""'+(!inf.stage?' selected':'')+'>— Stage —</option>'
+          +STAGES.map(s=>'<option'+(inf.stage===s?' selected':'')+'>'+escHtml(s)+'</option>').join("")
+        +'</select>'
         +(infoBits?'<span class="cinfo">'+escHtml(infoBits)+'</span>':'')
         +(inf.drive?'<a class="drv" href="'+escHtml(inf.drive)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open Drive folder">📁</a>':'')
         +(cAlerts?'<span class="a-badge">⚑ '+cAlerts+'</span>':'')
@@ -1105,19 +1120,58 @@ function renderComment(node,number,ci,pi){
 function toggleClient(ci){ clientOpen[ci]=!clientOpen[ci]; render(); }
 const settingsOpen={};
 function toggleSettings(ci){ settingsOpen[ci]=!settingsOpen[ci]; clientOpen[ci]=true; render(); }
+let removeClientConfirmCi = null;   // ci currently showing the inline "Really remove?" prompt
+let removeClientConfirmTimer = null;
 function clientSettings(c,ci){
   const inf=clientInfo(c);
   const fld=(lbl,key,ph)=>'<label>'+lbl+'<input id="cs-'+key+'-'+ci+'" value="'+escHtml(inf[key]||"")+'" placeholder="'+ph+'"></label>';
+  const removeControl = removeClientConfirmCi===ci
+    ? '<span class="del-confirm">Really remove "'+escHtml(c.name)+'"? This deletes all its data.'
+        +'<button class="yes" onclick="confirmRemoveClient('+ci+')">Yes</button>'
+        +'<button class="no" onclick="cancelRemoveClient()">No</button></span>'
+    : '<button class="btn-ghost" style="border-color:rgba(224,90,90,.5);color:var(--bad,#e05a5a)" onclick="askRemoveClient('+ci+')">✕ Remove client</button>';
   return '<div class="csettings"><div class="frm" style="margin-bottom:10px">'
     +fld("Period","period","e.g. FYE Feb 2026")
     +fld("Financial year end","fye","e.g. Feb 2026")
     +fld("Scorecard type","type","EME / QSE / Generic")
     +fld("Sector code","sector","Generic / ICT / Construction…")
     +'<label class="full">Google Drive folder link<input id="cs-drive-'+ci+'" value="'+escHtml(inf.drive||"")+'" placeholder="https://drive.google.com/…"></label>'
-    +'</div><div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +'</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
     +'<button class="btn-primary" onclick="saveClientInfo('+ci+')">Save info</button>'
     +'<button class="btn-ghost" style="border-color:rgba(63,191,107,.5);color:var(--done)" onclick="completePeriod('+ci+')">✓ Complete period &amp; start new</button>'
+    + removeControl
     +'</div></div>';
+}
+// In-app Yes/No instead of native confirm() — the same swap we made for comment
+// delete, since confirm() has been observed to silently no-op in some browser
+// environments. Auto-reverts after 5s if left untouched.
+function askRemoveClient(ci){
+  removeClientConfirmCi=ci;
+  render();
+  clearTimeout(removeClientConfirmTimer);
+  removeClientConfirmTimer=setTimeout(()=>{ removeClientConfirmCi=null; render(); },5000);
+}
+function cancelRemoveClient(){
+  clearTimeout(removeClientConfirmTimer);
+  removeClientConfirmCi=null;
+  render();
+}
+function confirmRemoveClient(ci){
+  clearTimeout(removeClientConfirmTimer);
+  removeClientConfirmCi=null;
+  const c=CLIENTS[ci];
+  if(!c) return;
+  logEvent(ME,"Client removed", c.name+" removed from board");
+  CLIENTS.splice(ci,1);
+  delete settingsOpen[ci];
+  delete clientOpen[ci];
+  render(); queueSave();
+}
+function setStage(ci,val){
+  const inf=clientInfo(CLIENTS[ci]);
+  inf.stage=val;
+  logEvent(ME,"Stage", CLIENTS[ci].name+" → "+(val||"(cleared)"));
+  render(); queueSave();
 }
 function saveClientInfo(ci){
   const inf=clientInfo(CLIENTS[ci]);

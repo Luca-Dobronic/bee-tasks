@@ -21,7 +21,7 @@ const SHEET_ID = "1b9hZz63iwuuGmpC-mLvdNPgBgwvMMbUA1z-uopLp35Q";
 const EL_HEAD = ["client","pillar","status","who","due"];
 const CM_HEAD = ["id","client","pillar","parentId","who","when","text","flag","deleted"];
 const LG_HEAD = ["when","who","action","detail"];
-const CI_HEAD = ["client","period","fye","type","sector","drive"];
+const CI_HEAD = ["client","period","fye","type","sector","drive","stage"];
 const AR_HEAD = ["client","period","closedOn","pillar","status","who","due","comments"];
 const SCHED_HEAD = ["id","name","certificateExpiry","onsiteDays60","filePrep90","documentChecklist",
   "calculator","dataSheets","analystAllocated","clientInfoSheetProvided","verificationInvoiceReceived",
